@@ -1,0 +1,243 @@
+{
+  "entities": {
+    "LedgerSummary": {
+      "title": "LedgerSummary",
+      "description": "Atomic per-user bill counter and summary metadata maintained via Firestore transactions.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "nextBillNumber": {
+          "type": "integer",
+          "description": "Next sequential bill number to assign."
+        },
+        "totalBills": {
+          "type": "integer",
+          "description": "Total active bill count for the user."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "nextBillNumber", "totalBills", "updatedAt"]
+    },
+    "Bill": {
+      "title": "Bill",
+      "description": "Accounting bill / paper ledger containing line items, totals, and optional photo metadata.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "billNumber": {
+          "type": "integer",
+          "description": "Sequential bill number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Bill title or label."
+        },
+        "vendorOrParty": {
+          "type": "string",
+          "description": "Optional customer or vendor name."
+        },
+        "billDateMillis": {
+          "type": "integer",
+          "description": "Accounting date of the bill in epoch milliseconds."
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": ["PHOTO", "PAPER"],
+          "description": "Origin of the bill: scanned photo or manual paper."
+        },
+        "ocrConfidence": {
+          "type": "string",
+          "enum": ["HIGH", "MEDIUM", "LOW", "MANUAL"],
+          "description": "OCR extraction clarity level."
+        },
+        "ocrWarning": {
+          "type": "string",
+          "description": "Optional OCR clarity warning requiring manual verification."
+        },
+        "hasImage": {
+          "type": "boolean",
+          "description": "Whether an associated bill image exists."
+        },
+        "localImagePath": {
+          "type": "string",
+          "description": "Optional internal app storage path to full-resolution bill photo."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional bill notes."
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded list (1..100) of product line items."
+        },
+        "totalQuantity": {
+          "type": "number",
+          "description": "Sum of all item quantities."
+        },
+        "totalPurchaseCost": {
+          "type": "number",
+          "description": "Total purchase cost across all line items."
+        },
+        "totalSellingAmount": {
+          "type": "number",
+          "description": "Total selling amount across all line items."
+        },
+        "totalProfit": {
+          "type": "number",
+          "description": "Total net profit across all line items."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "billNumber",
+        "title",
+        "billDateMillis",
+        "sourceType",
+        "ocrConfidence",
+        "hasImage",
+        "items",
+        "totalQuantity",
+        "totalPurchaseCost",
+        "totalSellingAmount",
+        "totalProfit",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BillImage": {
+      "title": "BillImage",
+      "description": "Compressed cloud backup of a bill photo scoped to the owner user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "imageBase64": {
+          "type": "string",
+          "description": "Compressed JPEG base64 payload."
+        },
+        "mimeType": {
+          "type": "string",
+          "enum": ["image/jpeg", "image/png"],
+          "description": "Image MIME type."
+        },
+        "width": {
+          "type": "integer",
+          "description": "Compressed image width in pixels."
+        },
+        "height": {
+          "type": "integer",
+          "description": "Compressed image height in pixels."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["userId", "imageBase64", "mimeType", "width", "height", "createdAt", "updatedAt"]
+    },
+    "CustomProduct": {
+      "title": "CustomProduct",
+      "description": "User-saved product preset with default unit, category, purchase price, and selling price.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display product name."
+        },
+        "normalizedName": {
+          "type": "string",
+          "description": "Lowercase trimmed key for deduplication."
+        },
+        "unitType": {
+          "type": "string",
+          "enum": ["FULL", "HALF", "PIECE", "KG", "UNIT"],
+          "description": "Default unit type."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["MASOOR_FULL", "MASOOR_HALF", "ROTI", "CUSTOM"],
+          "description": "Product tracking category."
+        },
+        "defaultPurchasePrice": {
+          "type": "number",
+          "description": "Default purchase price per unit."
+        },
+        "defaultSellingPrice": {
+          "type": "number",
+          "description": "Default selling price per unit."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "normalizedName",
+        "unitType",
+        "category",
+        "defaultPurchasePrice",
+        "defaultSellingPrice",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/meta/{metaId}": {
+      "schema": { "$ref": "#/entities/LedgerSummary" },
+      "description": "Per-user atomic bill counter and summary metadata."
+    },
+    "/users/{userId}/bills/{billId}": {
+      "schema": { "$ref": "#/entities/Bill" },
+      "description": "User-owned accounting bills with embedded bounded line items."
+    },
+    "/users/{userId}/billImages/{billId}": {
+      "schema": { "$ref": "#/entities/BillImage" },
+      "description": "User-owned compressed bill photos for cross-device persistence."
+    },
+    "/users/{userId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/CustomProduct" },
+      "description": "User-owned unlimited custom products catalog."
+    }
+  }
+}

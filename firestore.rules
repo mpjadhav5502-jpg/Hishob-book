@@ -1,0 +1,198 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny global catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isNum(v) {
+      return v is int || v is float;
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidLedgerSummary(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.nextBillNumber is int && data.nextBillNumber >= 1 && data.nextBillNumber <= 100000000 &&
+             data.totalBills is int && data.totalBills >= 0 && data.totalBills <= 100000000 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBill(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.billNumber is int && data.billNumber >= 1 && data.billNumber <= 100000000 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             (!('vendorOrParty' in data) || (data.vendorOrParty is string && data.vendorOrParty.size() <= 120)) &&
+             data.billDateMillis is int && data.billDateMillis > 0 &&
+             data.sourceType in ['PHOTO', 'PAPER'] &&
+             data.ocrConfidence in ['HIGH', 'MEDIUM', 'LOW', 'MANUAL'] &&
+             (!('ocrWarning' in data) || (data.ocrWarning is string && data.ocrWarning.size() <= 400)) &&
+             data.hasImage is bool &&
+             (!('localImagePath' in data) || (data.localImagePath is string && data.localImagePath.size() <= 500)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+             data.items is list && data.items.size() >= 1 && data.items.size() <= 100 && data.items[0] is map &&
+             isNum(data.totalQuantity) && data.totalQuantity >= 0 &&
+             isNum(data.totalPurchaseCost) && data.totalPurchaseCost >= 0 &&
+             isNum(data.totalSellingAmount) && data.totalSellingAmount >= 0 &&
+             isNum(data.totalProfit) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBillImage(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.imageBase64 is string && data.imageBase64.size() >= 1 && data.imageBase64.size() <= 750000 &&
+             data.mimeType in ['image/jpeg', 'image/png'] &&
+             data.width is int && data.width > 0 && data.width <= 4096 &&
+             data.height is int && data.height > 0 && data.height <= 4096 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidProduct(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.normalizedName is string && data.normalizedName.size() >= 1 && data.normalizedName.size() <= 80 &&
+             data.unitType in ['FULL', 'HALF', 'PIECE', 'KG', 'UNIT'] &&
+             data.category in ['MASOOR_FULL', 'MASOOR_HALF', 'ROTI', 'CUSTOM'] &&
+             isNum(data.defaultPurchasePrice) && data.defaultPurchasePrice >= 0 &&
+             isNum(data.defaultSellingPrice) && data.defaultSellingPrice >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // --- USER SUBCOLLECTIONS ---
+    match /users/{userId}/meta/{metaId} {
+      allow get: if isOwner(userId) && metaId == 'ledgerSummary';
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       metaId == 'ledgerSummary' &&
+                       incoming().keys().hasAll(['userId', 'nextBillNumber', 'totalBills', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'nextBillNumber', 'totalBills', 'updatedAt']) &&
+                       isValidLedgerSummary(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       metaId == 'ledgerSummary' &&
+                       incoming().userId == existing().userId &&
+                       isValidLedgerSummary(incoming(), userId) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['nextBillNumber', 'totalBills', 'updatedAt']);
+
+      allow delete: if false;
+    }
+
+    match /users/{userId}/bills/{billId} {
+      allow get: if isOwner(userId) && isValidId(billId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(billId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'billNumber', 'title', 'billDateMillis',
+                         'sourceType', 'ocrConfidence', 'hasImage', 'items',
+                         'totalQuantity', 'totalPurchaseCost', 'totalSellingAmount',
+                         'totalProfit', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'billNumber', 'title', 'vendorOrParty', 'billDateMillis',
+                         'sourceType', 'ocrConfidence', 'ocrWarning', 'hasImage',
+                         'localImagePath', 'notes', 'items', 'totalQuantity',
+                         'totalPurchaseCost', 'totalSellingAmount', 'totalProfit',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBill(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(billId) &&
+                       isValidBill(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().billNumber == existing().billNumber &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'title', 'vendorOrParty', 'billDateMillis', 'sourceType',
+                         'ocrConfidence', 'ocrWarning', 'hasImage', 'localImagePath',
+                         'notes', 'items', 'totalQuantity', 'totalPurchaseCost',
+                         'totalSellingAmount', 'totalProfit', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(billId);
+    }
+
+    match /users/{userId}/billImages/{billId} {
+      allow get: if isOwner(userId) && isValidId(billId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(billId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'imageBase64', 'mimeType', 'width', 'height', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'imageBase64', 'mimeType', 'width', 'height', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBillImage(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(billId) &&
+                       isValidBillImage(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'imageBase64', 'mimeType', 'width', 'height', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(billId);
+    }
+
+    match /users/{userId}/products/{productId} {
+      allow get: if isOwner(userId) && isValidId(productId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(productId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'name', 'normalizedName', 'unitType', 'category',
+                         'defaultPurchasePrice', 'defaultSellingPrice', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'name', 'normalizedName', 'unitType', 'category',
+                         'defaultPurchasePrice', 'defaultSellingPrice', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidProduct(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(productId) &&
+                       isValidProduct(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'name', 'normalizedName', 'unitType', 'category',
+                         'defaultPurchasePrice', 'defaultSellingPrice', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(productId);
+    }
+  }
+}

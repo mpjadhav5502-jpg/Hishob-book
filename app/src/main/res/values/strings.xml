@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">HisabPro</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="nav_ledger">Ledger</string>
+    <string name="nav_new_paper">New Paper</string>
+    <string name="nav_reports">Reports</string>
+    <string name="nav_products">Products</string>
+    <string name="error_no_internet">No internet connection. Cloud sync requires connectivity.</string>
+    <string name="error_generic">Something went wrong. Please try again.</string>
+    <string name="cd_app_logo">HisabPro logo</string>
+    <string name="cd_bill_photo">Uploaded bill photo</string>
+    <string name="cd_delete_item">Remove product row</string>
+    <string name="cd_edit_bill">Edit bill</string>
+    <string name="cd_delete_bill">Delete bill</string>
+</resources>

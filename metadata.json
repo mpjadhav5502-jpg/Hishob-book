@@ -1,0 +1,6 @@
+{
+  "name": "HisabPro",
+  "description": "Smart bill scanner, accounting ledger, and profit analytics app with multilingual OCR and PDF/CSV exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
