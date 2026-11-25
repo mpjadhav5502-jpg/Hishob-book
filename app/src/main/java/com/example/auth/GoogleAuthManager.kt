@@ -1,5 +1,6 @@
 package com.example.auth
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.util.Log
@@ -8,7 +9,6 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -23,6 +23,24 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 private const val AUTH_TAG = "Auth"
+private const val DEFAULT_WEB_CLIENT_ID_RES = "default_web_client_id"
+
+@SuppressLint("DiscouragedApi")
+private fun resolveDefaultWebClientId(context: Context): String? {
+    val res = context.resources
+    val primaryId = res.getIdentifier(DEFAULT_WEB_CLIENT_ID_RES, "string", context.packageName)
+    val resId = if (primaryId != 0) {
+        primaryId
+    } else {
+        res.getIdentifier(DEFAULT_WEB_CLIENT_ID_RES, "string", "com.example")
+    }
+    if (resId == 0) return null
+    return try {
+        res.getString(resId).trim().takeIf { it.isNotEmpty() }
+    } catch (_: Exception) {
+        null
+    }
+}
 
 fun attemptAutoSignIn(
     context: Context,
@@ -35,9 +53,9 @@ fun attemptAutoSignIn(
         onAuthSuccess()
         return
     }
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
+    val clientId = resolveDefaultWebClientId(context)
+    if (clientId == null) {
+        Log.w(AUTH_TAG, "Google Sign-In skipped: default_web_client_id resource not found.")
         onUnauthenticated()
         return
     }
@@ -75,10 +93,12 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onAuthError("Google Sign-In configuration missing: default_web_client_id not found.")
+    val clientId = resolveDefaultWebClientId(context)
+    if (clientId == null) {
+        Log.e(AUTH_TAG, "Google Sign-In unavailable: default_web_client_id resource missing.")
+        onAuthError(
+            "Google Sign-In is not configured in this build. Add app/google-services.json with an OAuth Web Client (client_type 3) from Firebase Console and rebuild."
+        )
         return
     }
     val activity = context as? Activity
