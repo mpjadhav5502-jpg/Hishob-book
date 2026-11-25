@@ -88,7 +88,17 @@ import com.example.ui.theme.ProfitGreen
 import com.example.ui.viewmodel.HisabViewModel
 import com.example.ui.viewmodel.UiState
 import com.example.util.observeNetworkConnectivity
+import android.util.Log
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.text.font.FontWeight
+import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
@@ -106,32 +116,171 @@ private enum class TopTab(
     PRODUCTS("products", R.string.nav_products, Icons.Filled.Inventory2, Icons.Outlined.Inventory2)
 }
 
+private const val STARTUP_TAG = "HisabStartup"
+
+private sealed interface FirebaseStartupStatus {
+    data class Ready(val auth: FirebaseAuth) : FirebaseStartupStatus
+    data class Failed(val title: String, val details: String, val technicalTrace: String) : FirebaseStartupStatus
+}
+
+private fun resolveFirebaseStartupStatus(context: android.content.Context): FirebaseStartupStatus {
+    return try {
+        val apps = FirebaseApp.getApps(context)
+        val initialized = apps.isNotEmpty() || FirebaseApp.initializeApp(context) != null
+        if (!initialized) {
+            val hasGoogleAppId = context.resources.getIdentifier("google_app_id", "string", context.packageName) != 0
+            val hasWebClientId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName) != 0
+            val details = buildString {
+                append("FirebaseApp could not initialize because google-services.json configuration is missing from this APK build.")
+                append("\n\nChecks:")
+                append("\n• google_app_id resource present: $hasGoogleAppId")
+                append("\n• default_web_client_id resource present: $hasWebClientId")
+                append("\n\nFix: Ensure app/google-services.json is committed in your repository and rebuild the APK.")
+            }
+            val trace = "IllegalStateException: Default FirebaseApp is not initialized in process ${context.packageName} (google_app_id present=$hasGoogleAppId)"
+            Log.e(STARTUP_TAG, trace)
+            FirebaseStartupStatus.Failed(
+                title = "Firebase Configuration Missing",
+                details = details,
+                technicalTrace = trace
+            )
+        } else {
+            val auth = Firebase.auth
+            Log.i(STARTUP_TAG, "Firebase initialized successfully (apps=${FirebaseApp.getApps(context).size})")
+            FirebaseStartupStatus.Ready(auth)
+        }
+    } catch (e: Exception) {
+        val trace = Log.getStackTraceString(e)
+        Log.e(STARTUP_TAG, "FATAL Firebase startup exception", e)
+        FirebaseStartupStatus.Failed(
+            title = "Startup Initialization Error",
+            details = e.localizedMessage ?: "Firebase failed to initialize during startup.",
+            technicalTrace = trace.take(600)
+        )
+    }
+}
+
 @Composable
 fun HisabApp() {
+    val context = LocalContext.current
+    var retryAttempt by remember { mutableStateOf(0) }
+    val startupStatus = remember(retryAttempt) { resolveFirebaseStartupStatus(context) }
+
+    when (startupStatus) {
+        is FirebaseStartupStatus.Failed -> {
+            StartupErrorScreen(
+                title = startupStatus.title,
+                details = startupStatus.details,
+                technicalTrace = startupStatus.technicalTrace,
+                onRetry = { retryAttempt += 1 }
+            )
+        }
+        is FirebaseStartupStatus.Ready -> {
+            HisabAuthGate(firebaseAuth = startupStatus.auth)
+        }
+    }
+}
+
+@Composable
+private fun StartupErrorScreen(
+    title: String,
+    details: String,
+    technicalTrace: String,
+    onRetry: () -> Unit
+) {
+    Scaffold { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ErrorOutline,
+                            contentDescription = null,
+                            tint = LossRed,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = details,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    androidx.compose.material3.Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = technicalTrace,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMonoFontFamily),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                    Button(
+                        onClick = onRetry,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("startup_retry_button")
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("  Retry Initialization")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HisabAuthGate(firebaseAuth: FirebaseAuth) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
 
-    var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
-    var isCheckingAutoSignIn by remember { mutableStateOf(Firebase.auth.currentUser == null) }
+    var currentUser by remember { mutableStateOf(firebaseAuth.currentUser) }
+    var isCheckingAutoSignIn by remember { mutableStateOf(firebaseAuth.currentUser == null) }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(firebaseAuth) {
         val listener = FirebaseAuth.AuthStateListener { auth ->
             currentUser = auth.currentUser
         }
-        Firebase.auth.addAuthStateListener(listener)
+        firebaseAuth.addAuthStateListener(listener)
         onDispose {
-            Firebase.auth.removeAuthStateListener(listener)
+            firebaseAuth.removeAuthStateListener(listener)
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (Firebase.auth.currentUser == null) {
+    LaunchedEffect(firebaseAuth) {
+        if (firebaseAuth.currentUser == null) {
             attemptAutoSignIn(
                 context = context,
                 credentialManager = credentialManager,
                 onAuthSuccess = {
-                    currentUser = Firebase.auth.currentUser
+                    currentUser = firebaseAuth.currentUser
                     isCheckingAutoSignIn = false
                 },
                 onUnauthenticated = {
@@ -148,12 +297,13 @@ fun HisabApp() {
     if (user == null) {
         AuthScreen(
             isCheckingAutoSignIn = isCheckingAutoSignIn,
-            onAuthSuccess = { currentUser = Firebase.auth.currentUser }
+            onAuthSuccess = { currentUser = firebaseAuth.currentUser }
         )
     } else {
         key(user.uid) {
             AuthenticatedWorkspace(
                 user = user,
+                firebaseAuth = firebaseAuth,
                 onSignOut = {
                     signOutUser(credentialManager, scope) {
                         currentUser = null
@@ -168,6 +318,7 @@ fun HisabApp() {
 @Composable
 private fun AuthenticatedWorkspace(
     user: FirebaseUser,
+    firebaseAuth: FirebaseAuth,
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
@@ -179,7 +330,7 @@ private fun AuthenticatedWorkspace(
                 val dbId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(dbId)
                 val imageStore = BillImageLocalStore(app)
-                val repo = HisabRepository(db = db, auth = Firebase.auth, localImageStore = imageStore)
+                val repo = HisabRepository(db = db, auth = firebaseAuth, localImageStore = imageStore)
                 HisabViewModel(
                     repository = repo,
                     imageStore = imageStore,

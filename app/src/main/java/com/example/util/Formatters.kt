@@ -65,13 +65,18 @@ object Formatters {
 }
 
 fun observeNetworkConnectivity(context: Context): Flow<Boolean> = callbackFlow {
-    val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-
-    fun isCurrentlyOnline(): Boolean {
-        val active = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(active) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    val cm = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    if (cm == null) {
+        trySend(true)
+        awaitClose { }
+        return@callbackFlow
     }
+
+    fun isCurrentlyOnline(): Boolean = runCatching {
+        val active = cm.activeNetwork ?: return@runCatching false
+        val caps = cm.getNetworkCapabilities(active) ?: return@runCatching false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(true)
 
     trySend(isCurrentlyOnline())
 

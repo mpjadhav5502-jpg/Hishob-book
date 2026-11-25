@@ -14,6 +14,7 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
@@ -49,7 +50,20 @@ fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null) {
+    val isFirebaseInitialized = FirebaseApp.getApps(context).isNotEmpty() ||
+        runCatching { FirebaseApp.initializeApp(context) != null }.getOrDefault(false)
+    if (!isFirebaseInitialized) {
+        Log.e(AUTH_TAG, "attemptAutoSignIn aborted: FirebaseApp is not initialized.")
+        onUnauthenticated()
+        return
+    }
+    val existingUser = try {
+        Firebase.auth.currentUser
+    } catch (e: Exception) {
+        Log.e(AUTH_TAG, "Failed to read Firebase.auth.currentUser", e)
+        null
+    }
+    if (existingUser != null) {
         onAuthSuccess()
         return
     }
@@ -93,6 +107,15 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
+    val isFirebaseInitialized = FirebaseApp.getApps(context).isNotEmpty() ||
+        runCatching { FirebaseApp.initializeApp(context) != null }.getOrDefault(false)
+    if (!isFirebaseInitialized) {
+        Log.e(AUTH_TAG, "Google Sign-In aborted: FirebaseApp is not initialized.")
+        onAuthError(
+            "Firebase is not initialized in this APK. Ensure app/google-services.json is included before building."
+        )
+        return
+    }
     val clientId = resolveDefaultWebClientId(context)
     if (clientId == null) {
         Log.e(AUTH_TAG, "Google Sign-In unavailable: default_web_client_id resource missing.")
@@ -144,7 +167,11 @@ fun signOutUser(
             } catch (e: Exception) {
                 Log.w(AUTH_TAG, "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                try {
+                    Firebase.auth.signOut()
+                } catch (e: Exception) {
+                    Log.w(AUTH_TAG, "Firebase signOut skipped: ${e.message}")
+                }
                 onSignOutComplete()
             }
         }
